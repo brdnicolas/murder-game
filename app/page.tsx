@@ -19,11 +19,20 @@ interface GameState {
   playerCount: number;
   endTime: number | null;
   winner: string | null;
+  lobbyCode: string;
+  lobbyName: string;
 }
 
 interface RoleInfo {
   role: string;
   partners: string[];
+}
+
+interface LobbyInfo {
+  code: string;
+  name: string;
+  playerCount: number;
+  started: boolean;
 }
 
 const ROLE_META: Record<string, { icon: string; description: string; color: string }> = {
@@ -53,7 +62,8 @@ function formatTime(seconds: number): string {
 export default function Home() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [name, setName] = useState("");
-  const [joined, setJoined] = useState(false);
+  const [lobbyCode, setLobbyCode] = useState<string | null>(null);
+  const [lobbyList, setLobbyList] = useState<LobbyInfo[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [roleInfo, setRoleInfo] = useState<RoleInfo | null>(null);
@@ -69,8 +79,12 @@ export default function Home() {
     const s = io();
     setSocket(s);
 
-    s.on("joined", ({ isAdmin }: { isAdmin: boolean }) => {
-      setJoined(true);
+    s.on("lobbyList", (list: LobbyInfo[]) => {
+      setLobbyList(list);
+    });
+
+    s.on("joinedLobby", ({ code, isAdmin }: { code: string; isAdmin: boolean }) => {
+      setLobbyCode(code);
       setIsAdmin(isAdmin);
     });
 
@@ -96,13 +110,8 @@ export default function Home() {
       deadCountRef.current = 0;
     });
 
-    s.on("gameStarted", () => {
-      // gameState update handles the rest
-    });
-
-    s.on("gameOver", () => {
-      // gameState update carries the winner
-    });
+    s.on("gameStarted", () => {});
+    s.on("gameOver", () => {});
 
     s.on("promoted", () => {
       setIsAdmin(true);
@@ -123,10 +132,8 @@ export default function Home() {
     if (!gameState?.started || gameState.winner) return;
     const currentDeadCount = gameState.players.filter((p) => !p.alive).length;
     if (currentDeadCount > deadCountRef.current) {
-      // Someone new died — play sound and flash
       const audio = new Audio("/death.mp3");
       audio.play().catch(() => {});
-
       setDeathFlash(true);
       setTimeout(() => setDeathFlash(false), 2000);
     }
@@ -152,12 +159,6 @@ export default function Home() {
     };
   }, [gameState?.started, gameState?.endTime, gameState?.winner]);
 
-  const handleJoin = useCallback(() => {
-    if (name.trim() && socket) {
-      socket.emit("join", name.trim());
-    }
-  }, [name, socket]);
-
   const updateConfig = useCallback(
     (key: string, delta: number) => {
       if (!socket || !gameState) return;
@@ -172,33 +173,66 @@ export default function Home() {
     [socket, gameState]
   );
 
-  // --- JOIN SCREEN ---
-  if (!joined) {
+  // --- HOME SCREEN (no lobby joined) ---
+  if (!lobbyCode) {
+    const availableLobbies = lobbyList.filter((l) => !l.started);
+
     return (
       <div className="container fade-in">
         <h1>Murder Game</h1>
         <p className="subtitle">Meurtrier &middot; Innocent &middot; Justicier</p>
-        <div className="card">
-          <h2>Rejoindre la partie</h2>
-          <div className="gap-12">
-            <input
-              type="text"
-              placeholder="Ton prénom..."
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-              autoFocus
-            />
-            <button
-              className="btn-primary"
-              onClick={handleJoin}
-              disabled={!name.trim()}
-            >
-              Rejoindre
-            </button>
-          </div>
-        </div>
+
         {error && <div className="error">{error}</div>}
+
+        <div className="card">
+          <h2>Ton prénom</h2>
+          <input
+            type="text"
+            placeholder="Ton prénom..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <button
+          className="btn-primary"
+          disabled={!name.trim()}
+          onClick={() => {
+            if (name.trim() && socket) {
+              socket.emit("createLobby", { playerName: name.trim(), lobbyName: "" });
+            }
+          }}
+        >
+          Créer un lobby
+        </button>
+
+        {availableLobbies.length > 0 && (
+          <div className="card lobby-list-card">
+            <h2>Lobbies disponibles</h2>
+            <ul className="lobby-list">
+              {availableLobbies.map((l) => (
+                <li key={l.code} className="lobby-item">
+                  <div className="lobby-item-info">
+                    <span className="lobby-item-name">{l.name}</span>
+                    <span className="lobby-item-players">{l.playerCount} joueur{l.playerCount > 1 ? "s" : ""}</span>
+                  </div>
+                  <button
+                    className="btn-join"
+                    disabled={!name.trim()}
+                    onClick={() => {
+                      if (name.trim() && socket) {
+                        socket.emit("joinLobby", { code: l.code, playerName: name.trim() });
+                      }
+                    }}
+                  >
+                    Rejoindre
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }
@@ -255,7 +289,7 @@ export default function Home() {
     );
   }
 
-  // --- IN-GAME SCREEN (timer started, roles hidden) ---
+  // --- IN-GAME SCREEN ---
   if (roleInfo && gameState?.started) {
     const meta = ROLE_META[roleInfo.role];
 
@@ -291,7 +325,7 @@ export default function Home() {
     );
   }
 
-  // --- ROLE REVEAL SCREEN (roles assigned, waiting for admin to start timer) ---
+  // --- ROLE REVEAL SCREEN ---
   if (roleInfo && gameState?.rolesRevealed && !gameState.started) {
     const meta = ROLE_META[roleInfo.role];
     return (
@@ -326,7 +360,7 @@ export default function Home() {
     );
   }
 
-  // --- LOBBY ---
+  // --- LOBBY SCREEN ---
   const config = gameState?.config || { murderers: 1, innocents: 3, vigilantes: 1, timer: 5 };
   const total = config.murderers + config.innocents + config.vigilantes;
   const playerCount = gameState?.playerCount || 0;
@@ -335,6 +369,10 @@ export default function Home() {
   return (
     <div className="container fade-in">
       <h1>Murder Game</h1>
+      <div className="lobby-code-display">
+        <span className="lobby-code-label">Code du lobby</span>
+        <span className="lobby-code-value">{lobbyCode}</span>
+      </div>
       <p className="subtitle">
         {isAdmin ? "Tu es l'admin" : "En attente du lancement..."}
       </p>
