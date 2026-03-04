@@ -10,29 +10,47 @@ const handle = app.getRequestHandler();
 let game = {
   players: new Map(),
   adminId: null,
-  config: { murderers: 1, innocents: 3, vigilantes: 1 },
+  config: { murderers: 1, innocents: 3, vigilantes: 1, timer: 5 },
   started: false,
+  rolesRevealed: false,
+  endTime: null,
+  winner: null,
+  timerInterval: null,
 };
 
 function resetGame() {
+  if (game.timerInterval) clearInterval(game.timerInterval);
   game = {
     players: new Map(),
     adminId: null,
-    config: { murderers: 1, innocents: 3, vigilantes: 1 },
+    config: { murderers: 1, innocents: 3, vigilantes: 1, timer: 5 },
     started: false,
+    rolesRevealed: false,
+    endTime: null,
+    winner: null,
+    timerInterval: null,
   };
 }
 
 function broadcastState(io) {
   const players = [];
   for (const [id, p] of game.players) {
-    players.push({ id, name: p.name, isAdmin: id === game.adminId });
+    players.push({
+      id,
+      name: p.name,
+      isAdmin: id === game.adminId,
+      alive: p.alive,
+      role: game.winner ? p.role : undefined,
+    });
   }
   io.emit("gameState", {
     players,
     config: game.config,
     started: game.started,
+    rolesRevealed: game.rolesRevealed,
     playerCount: game.players.size,
+    endTime: game.endTime,
+    winner: game.winner,
   });
 }
 
@@ -54,7 +72,44 @@ function assignRoles() {
   let idx = 0;
   for (const [, player] of game.players) {
     player.role = roles[idx++];
+    player.alive = true;
   }
+}
+
+function checkWinCondition(io) {
+  if (!game.started || game.winner) return;
+
+  const aliveNonMurderers = [...game.players.values()].filter(
+    (p) => p.alive && p.role !== "meurtrier"
+  );
+
+  if (aliveNonMurderers.length === 0) {
+    game.winner = "meurtriers";
+    if (game.timerInterval) {
+      clearInterval(game.timerInterval);
+      game.timerInterval = null;
+    }
+    io.emit("gameOver", { winner: "meurtriers" });
+    broadcastState(io);
+  }
+}
+
+function startTimer(io) {
+  game.endTime = Date.now() + game.config.timer * 60 * 1000;
+  game.timerInterval = setInterval(() => {
+    if (game.winner) {
+      clearInterval(game.timerInterval);
+      game.timerInterval = null;
+      return;
+    }
+    if (Date.now() >= game.endTime) {
+      clearInterval(game.timerInterval);
+      game.timerInterval = null;
+      game.winner = "innocents";
+      io.emit("gameOver", { winner: "innocents" });
+      broadcastState(io);
+    }
+  }, 1000);
 }
 
 app.prepare().then(() => {
@@ -72,7 +127,7 @@ app.prepare().then(() => {
       }
 
       const isAdmin = game.players.size === 0;
-      game.players.set(socket.id, { name, role: null });
+      game.players.set(socket.id, { name, role: null, alive: true });
       if (isAdmin) game.adminId = socket.id;
 
       socket.emit("joined", { isAdmin });
@@ -85,12 +140,14 @@ app.prepare().then(() => {
         murderers: Math.max(0, config.murderers || 0),
         innocents: Math.max(0, config.innocents || 0),
         vigilantes: Math.max(0, config.vigilantes || 0),
+        timer: Math.min(60, Math.max(1, config.timer || 5)),
       };
       broadcastState(io);
     });
 
-    socket.on("startGame", () => {
+    socket.on("revealRoles", () => {
       if (socket.id !== game.adminId) return;
+      if (game.rolesRevealed || game.started) return;
 
       const total =
         game.config.murderers + game.config.innocents + game.config.vigilantes;
@@ -103,7 +160,7 @@ app.prepare().then(() => {
       }
 
       assignRoles();
-      game.started = true;
+      game.rolesRevealed = true;
 
       for (const [id, player] of game.players) {
         const partners = [];
@@ -123,12 +180,40 @@ app.prepare().then(() => {
       broadcastState(io);
     });
 
+    socket.on("startGame", () => {
+      if (socket.id !== game.adminId) return;
+      if (!game.rolesRevealed || game.started) return;
+
+      game.started = true;
+      startTimer(io);
+      io.emit("gameStarted");
+      broadcastState(io);
+    });
+
+    socket.on("declareDead", () => {
+      if (!game.started || game.winner) return;
+      const player = game.players.get(socket.id);
+      if (!player || !player.alive) return;
+
+      player.alive = false;
+      broadcastState(io);
+      checkWinCondition(io);
+    });
+
     socket.on("restartGame", () => {
       if (socket.id !== game.adminId) return;
+      if (game.timerInterval) {
+        clearInterval(game.timerInterval);
+        game.timerInterval = null;
+      }
       for (const [, player] of game.players) {
         player.role = null;
+        player.alive = true;
       }
       game.started = false;
+      game.rolesRevealed = false;
+      game.endTime = null;
+      game.winner = null;
       io.emit("gameRestarted");
       broadcastState(io);
     });
@@ -145,6 +230,10 @@ app.prepare().then(() => {
       if (wasAdmin) {
         game.adminId = game.players.keys().next().value;
         io.to(game.adminId).emit("promoted");
+      }
+
+      if (game.started && !game.winner) {
+        checkWinCondition(io);
       }
 
       broadcastState(io);

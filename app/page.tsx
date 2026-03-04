@@ -1,19 +1,24 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
 interface Player {
   id: string;
   name: string;
   isAdmin: boolean;
+  alive: boolean;
+  role?: string;
 }
 
 interface GameState {
   players: Player[];
-  config: { murderers: number; innocents: number; vigilantes: number };
+  config: { murderers: number; innocents: number; vigilantes: number; timer: number };
   started: boolean;
+  rolesRevealed: boolean;
   playerCount: number;
+  endTime: number | null;
+  winner: string | null;
 }
 
 interface RoleInfo {
@@ -21,20 +26,29 @@ interface RoleInfo {
   partners: string[];
 }
 
-const ROLE_META: Record<string, { icon: string; description: string }> = {
+const ROLE_META: Record<string, { icon: string; description: string; color: string }> = {
   meurtrier: {
     icon: "\uD83D\uDD2A",
     description: "Tu es un meurtrier. Élimine les autres sans te faire repérer.",
+    color: "var(--red)",
   },
   innocent: {
     icon: "\uD83D\uDE07",
     description: "Tu es innocent. Survis et trouve les meurtriers.",
+    color: "var(--green)",
   },
   justicier: {
     icon: "\uD83D\uDEE1\uFE0F",
     description: "Tu es le justicier. Protège les innocents et démasque les meurtriers.",
+    color: "var(--gold)",
   },
 };
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
 
 export default function Home() {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -44,6 +58,9 @@ export default function Home() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [roleInfo, setRoleInfo] = useState<RoleInfo | null>(null);
   const [error, setError] = useState("");
+  const [isDead, setIsDead] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const s = io();
@@ -56,6 +73,12 @@ export default function Home() {
 
     s.on("gameState", (state: GameState) => {
       setGameState(state);
+      if (state.endTime && state.started && !state.winner) {
+        const remaining = Math.max(0, Math.ceil((state.endTime - Date.now()) / 1000));
+        setTimeLeft(remaining);
+      } else if (state.winner) {
+        setTimeLeft(0);
+      }
     });
 
     s.on("roleAssigned", (info: RoleInfo) => {
@@ -64,6 +87,16 @@ export default function Home() {
 
     s.on("gameRestarted", () => {
       setRoleInfo(null);
+      setIsDead(false);
+      setTimeLeft(null);
+    });
+
+    s.on("gameStarted", () => {
+      // gameState update handles the rest
+    });
+
+    s.on("gameOver", () => {
+      // gameState update carries the winner
     });
 
     s.on("promoted", () => {
@@ -80,6 +113,25 @@ export default function Home() {
     };
   }, []);
 
+  // Client-side countdown
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    if (gameState?.started && gameState.endTime && !gameState.winner) {
+      timerRef.current = setInterval(() => {
+        const remaining = Math.max(0, Math.ceil((gameState.endTime! - Date.now()) / 1000));
+        setTimeLeft(remaining);
+        if (remaining <= 0 && timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [gameState?.started, gameState?.endTime, gameState?.winner]);
+
   const handleJoin = useCallback(() => {
     if (name.trim() && socket) {
       socket.emit("join", name.trim());
@@ -91,14 +143,16 @@ export default function Home() {
       if (!socket || !gameState) return;
       const newConfig = {
         ...gameState.config,
-        [key]: Math.max(0, gameState.config[key as keyof typeof gameState.config] + delta),
+        [key]: key === "timer"
+          ? Math.min(60, Math.max(1, gameState.config.timer + delta))
+          : Math.max(0, gameState.config[key as keyof typeof gameState.config] + delta),
       };
       socket.emit("updateConfig", newConfig);
     },
     [socket, gameState]
   );
 
-  // Join screen
+  // --- JOIN SCREEN ---
   if (!joined) {
     return (
       <div className="container fade-in">
@@ -129,8 +183,109 @@ export default function Home() {
     );
   }
 
-  // Role reveal
+  // --- VICTORY SCREEN ---
+  if (gameState?.winner) {
+    const isMurdererWin = gameState.winner === "meurtriers";
+    return (
+      <div className="container fade-in">
+        <div className="card victory-screen">
+          <div className="victory-icon">{isMurdererWin ? "\uD83D\uDD2A" : "\uD83C\uDF89"}</div>
+          <div className={`victory-title ${isMurdererWin ? "meurtrier" : "innocent"}`}>
+            {isMurdererWin ? "Les meurtriers ont gagné !" : "Les innocents ont survécu !"}
+          </div>
+          <p className="victory-subtitle">
+            {isMurdererWin
+              ? "Tous les innocents et justiciers ont été éliminés."
+              : "Le temps est écoulé, les meurtriers n'ont pas réussi."}
+          </p>
+        </div>
+
+        <div className="card">
+          <h2>Résultats</h2>
+          <ul className="player-list">
+            {gameState.players.map((p) => {
+              const meta = p.role ? ROLE_META[p.role] : null;
+              return (
+                <li key={p.id} className={`player-item ${!p.alive ? "player-dead" : ""}`}>
+                  <div className="player-avatar" style={meta ? { background: meta.color } : undefined}>
+                    {meta ? meta.icon : p.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="player-result-info">
+                    <span className="player-result-name">{p.name}</span>
+                    <span className="player-result-role" style={meta ? { color: meta.color } : undefined}>
+                      {p.role || "inconnu"}
+                    </span>
+                  </div>
+                  {!p.alive && <span className="dead-badge">Mort</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {isAdmin && (
+          <button
+            className="btn-primary"
+            onClick={() => socket?.emit("restartGame")}
+          >
+            Nouvelle partie
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // --- IN-GAME SCREEN (timer started, roles hidden) ---
   if (roleInfo && gameState?.started) {
+    const meta = ROLE_META[roleInfo.role];
+    const deadPlayers = gameState.players.filter((p) => !p.alive);
+
+    return (
+      <div className="container fade-in">
+        <div className="ingame-header">
+          <span className="ingame-role-hint" title={roleInfo.role}>{meta.icon}</span>
+          {timeLeft !== null && (
+            <div className={`timer ${timeLeft <= 60 ? "urgent" : ""}`}>
+              {formatTime(timeLeft)}
+            </div>
+          )}
+        </div>
+
+        {isDead ? (
+          <div className="dead-message">Tu es mort...</div>
+        ) : (
+          <button
+            className="btn-dead"
+            onClick={() => {
+              socket?.emit("declareDead");
+              setIsDead(true);
+            }}
+          >
+            Je suis mort
+          </button>
+        )}
+
+        {deadPlayers.length > 0 && (
+          <div className="card">
+            <h2>Joueurs éliminés ({deadPlayers.length})</h2>
+            <ul className="player-list">
+              {deadPlayers.map((p) => (
+                <li key={p.id} className="player-item player-dead">
+                  <div className="player-avatar dead-avatar">
+                    {p.name.charAt(0).toUpperCase()}
+                  </div>
+                  {p.name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- ROLE REVEAL SCREEN (roles assigned, waiting for admin to start timer) ---
+  if (roleInfo && gameState?.rolesRevealed && !gameState.started) {
     const meta = ROLE_META[roleInfo.role];
     return (
       <div className="container fade-in">
@@ -149,20 +304,23 @@ export default function Home() {
             </div>
           )}
         </div>
-        {isAdmin && (
+
+        {isAdmin ? (
           <button
-            className="btn-danger"
-            onClick={() => socket?.emit("restartGame")}
+            className="btn-primary"
+            onClick={() => socket?.emit("startGame")}
           >
-            Nouvelle partie
+            Lancer la partie
           </button>
+        ) : (
+          <p className="subtitle">En attente du lancement...</p>
         )}
       </div>
     );
   }
 
-  // Lobby
-  const config = gameState?.config || { murderers: 1, innocents: 3, vigilantes: 1 };
+  // --- LOBBY ---
+  const config = gameState?.config || { murderers: 1, innocents: 3, vigilantes: 1, timer: 5 };
   const total = config.murderers + config.innocents + config.vigilantes;
   const playerCount = gameState?.playerCount || 0;
   const isValid = total === playerCount && playerCount > 0;
@@ -227,14 +385,35 @@ export default function Home() {
               {total} rôles / {playerCount} joueurs
               {isValid ? " \u2714" : " \u2716"}
             </div>
+
+            <div className="config-row config-timer">
+              <span className="config-label">
+                {"⏱️"} Timer
+              </span>
+              <div className="config-controls">
+                <button
+                  className="btn-secondary"
+                  onClick={() => updateConfig("timer", -1)}
+                >
+                  &minus;
+                </button>
+                <span>{config.timer} min</span>
+                <button
+                  className="btn-secondary"
+                  onClick={() => updateConfig("timer", 1)}
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
 
           <button
             className="btn-primary"
             disabled={!isValid}
-            onClick={() => socket?.emit("startGame")}
+            onClick={() => socket?.emit("revealRoles")}
           >
-            Lancer la partie
+            Révéler les rôles
           </button>
         </>
       )}

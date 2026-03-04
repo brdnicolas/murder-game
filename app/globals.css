@@ -209,6 +209,12 @@ button:disabled {
   color: var(--red);
 }
 
+.config-timer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .role-reveal {
   text-align: center;
   padding: 40px 24px;
@@ -285,6 +291,152 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Timer */
+.timer {
+  text-align: center;
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin-bottom: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.timer.urgent {
+  color: var(--red);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* In-game header */
+.ingame-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+.ingame-role-hint {
+  font-size: 1.4rem;
+  opacity: 0.35;
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.ingame-header .timer {
+  flex: 1;
+  margin-bottom: 0;
+  text-align: center;
+  font-size: 2.5rem;
+}
+
+/* Dead button */
+.btn-dead {
+  background: var(--red);
+  color: white;
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  margin-bottom: 16px;
+}
+
+.btn-dead:active {
+  transform: scale(0.98);
+}
+
+/* Dead state */
+.dead-overlay {
+  opacity: 0.4;
+  filter: grayscale(1);
+  pointer-events: none;
+}
+
+.dead-message {
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.player-dead {
+  opacity: 0.5;
+}
+
+.dead-avatar {
+  background: var(--border) !important;
+}
+
+.dead-badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+  background: var(--red);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* Victory screen */
+.victory-screen {
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.victory-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+}
+
+.victory-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.victory-title.meurtrier {
+  color: var(--red);
+}
+
+.victory-title.innocent {
+  color: var(--green);
+}
+
+.victory-subtitle {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Results */
+.player-result-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.player-result-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.player-result-role {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
 }
 
 @keyframes fadeIn {
