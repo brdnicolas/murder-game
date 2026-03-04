@@ -59,6 +59,7 @@ export default function Home() {
   const [roleInfo, setRoleInfo] = useState<RoleInfo | null>(null);
   const [error, setError] = useState("");
   const [isDead, setIsDead] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [deathFlash, setDeathFlash] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -354,6 +355,19 @@ export default function Home() {
           ))}
         </ul>
       </div>
+
+      <button
+        className={`btn-test-audio ${audioPlaying ? "playing" : ""}`}
+        disabled={audioPlaying}
+        onClick={() => {
+          const a = new Audio("/death.mp3");
+          setAudioPlaying(true);
+          a.play().catch(() => {});
+          a.onended = () => setAudioPlaying(false);
+        }}
+      >
+        {audioPlaying ? "Son en cours..." : "Tester l'audio"}
+      </button>
 
       {isAdmin && (
         <>

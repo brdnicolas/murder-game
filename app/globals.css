@@ -314,6 +314,27 @@ button:disabled {
   50% { opacity: 0.5; }
 }
 
+/* Test audio button */
+.btn-test-audio {
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: all 0.2s;
+}
+
+.btn-test-audio:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.btn-test-audio.playing {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+
 /* In-game header */
 .ingame-header {
   display: flex;
