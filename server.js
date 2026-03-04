@@ -79,9 +79,9 @@ function assignRoles() {
 function checkWinCondition(io) {
   if (!game.started || game.winner) return;
 
-  const aliveNonMurderers = [...game.players.values()].filter(
-    (p) => p.alive && p.role !== "meurtrier"
-  );
+  const players = [...game.players.values()];
+  const aliveMurderers = players.filter((p) => p.alive && p.role === "meurtrier");
+  const aliveNonMurderers = players.filter((p) => p.alive && p.role !== "meurtrier");
 
   if (aliveNonMurderers.length === 0) {
     game.winner = "meurtriers";
@@ -90,6 +90,14 @@ function checkWinCondition(io) {
       game.timerInterval = null;
     }
     io.emit("gameOver", { winner: "meurtriers" });
+    broadcastState(io);
+  } else if (aliveMurderers.length === 0) {
+    game.winner = "innocents";
+    if (game.timerInterval) {
+      clearInterval(game.timerInterval);
+      game.timerInterval = null;
+    }
+    io.emit("gameOver", { winner: "innocents" });
     broadcastState(io);
   }
 }
