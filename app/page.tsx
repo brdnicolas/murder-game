@@ -60,7 +60,9 @@ export default function Home() {
   const [error, setError] = useState("");
   const [isDead, setIsDead] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [deathFlash, setDeathFlash] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deadCountRef = useRef(0);
 
   useEffect(() => {
     const s = io();
@@ -89,6 +91,8 @@ export default function Home() {
       setRoleInfo(null);
       setIsDead(false);
       setTimeLeft(null);
+      setDeathFlash(false);
+      deadCountRef.current = 0;
     });
 
     s.on("gameStarted", () => {
@@ -112,6 +116,21 @@ export default function Home() {
       s.disconnect();
     };
   }, []);
+
+  // Death sound detection
+  useEffect(() => {
+    if (!gameState?.started || gameState.winner) return;
+    const currentDeadCount = gameState.players.filter((p) => !p.alive).length;
+    if (currentDeadCount > deadCountRef.current) {
+      // Someone new died — play sound and flash
+      const audio = new Audio("/death.mp3");
+      audio.play().catch(() => {});
+
+      setDeathFlash(true);
+      setTimeout(() => setDeathFlash(false), 2000);
+    }
+    deadCountRef.current = currentDeadCount;
+  }, [gameState?.players, gameState?.started, gameState?.winner]);
 
   // Client-side countdown
   useEffect(() => {
@@ -238,10 +257,9 @@ export default function Home() {
   // --- IN-GAME SCREEN (timer started, roles hidden) ---
   if (roleInfo && gameState?.started) {
     const meta = ROLE_META[roleInfo.role];
-    const deadPlayers = gameState.players.filter((p) => !p.alive);
 
     return (
-      <div className="container fade-in">
+      <div className={`container fade-in ${deathFlash ? "death-flash" : ""}`}>
         <div className="ingame-header">
           <span className="ingame-role-hint" title={roleInfo.role}>{meta.icon}</span>
           {timeLeft !== null && (
@@ -250,6 +268,10 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {deathFlash && (
+          <div className="death-alert">Quelqu&#39;un est mort...</div>
+        )}
 
         {isDead ? (
           <div className="dead-message">Tu es mort...</div>
@@ -263,22 +285,6 @@ export default function Home() {
           >
             Je suis mort
           </button>
-        )}
-
-        {deadPlayers.length > 0 && (
-          <div className="card">
-            <h2>Joueurs éliminés ({deadPlayers.length})</h2>
-            <ul className="player-list">
-              {deadPlayers.map((p) => (
-                <li key={p.id} className="player-item player-dead">
-                  <div className="player-avatar dead-avatar">
-                    {p.name.charAt(0).toUpperCase()}
-                  </div>
-                  {p.name}
-                </li>
-              ))}
-            </ul>
-          </div>
         )}
       </div>
     );

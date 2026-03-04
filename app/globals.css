@@ -439,6 +439,30 @@ button:disabled {
   font-weight: 600;
 }
 
+/* Death alert */
+.death-flash {
+  animation: flashRed 2s ease;
+}
+
+.death-alert {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--red);
+  padding: 16px;
+  margin-bottom: 16px;
+  background: rgba(231, 76, 60, 0.12);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 8px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes flashRed {
+  0% { background: transparent; }
+  10% { background: rgba(231, 76, 60, 0.15); }
+  100% { background: transparent; }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
